@@ -2,7 +2,7 @@
 
 include_once(_PS_MODULE_DIR_ . 'easebuzzpayment/tools/EasebuzzLogger.php');
 
-class EasebuzzPaymentPaymentModuleFrontController extends ModuleFrontController
+class EasebuzzPaymentPaymentAjaxModuleFrontController extends ModuleFrontController
 {
     public function initContent()
     {
@@ -10,28 +10,38 @@ class EasebuzzPaymentPaymentModuleFrontController extends ModuleFrontController
         parent::initContent();
 
         $cart = $this->context->cart;
-        EasebuzzLogger::addLog('payment_process', __FUNCTION__, 'Initiate payment with Cart Id: ', $cart->id);
+        EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, 'Initiate payment with Cart Id: ', $cart->id);
 
         if ($cart->id_customer == 0 || $cart->id_address_delivery == 0 || $cart->id_address_invoice == 0 || !$this->module->active) {
-            EasebuzzLogger::addLog('payment_process', __FUNCTION__, 'Cart Data Not Found: ');
-            Tools::redirect('index.php?controller=order&step=1');
-
-            return;
+            EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, 'Cart Data Not Found: ');
+            $message = 'Error on initiating payment : Cart Data Not Found';
+            $ajax_response = [
+                'success' => false,
+                'message' => $message
+            ];
+            die(json_encode($ajax_response));
         }
         $customer = new Customer($cart->id_customer);
         if (!Validate::isLoadedObject($customer)) {
-            EasebuzzLogger::addLog('payment_process', __FUNCTION__, 'Customer Data Not Found: ');
-            Tools::redirect('index.php?controller=order&step=1');
-            return;
+            EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, 'Customer Data Not Found: ');
+            $message = 'Error on initiating payment : Customer Data Not Found';
+            $ajax_response = [
+                'success' => false,
+                'message' => $message
+            ];
+            die(json_encode($ajax_response));
         } else {
-            EasebuzzLogger::addLog('payment_process', __FUNCTION__, 'Customer Loaded Successfully', $cart->id);
+            EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, 'Customer Loaded Successfully', $cart->id);
             $this->context->updateCustomer($customer);
         }
         $currency = $this->context->currency;
         $total = (float) $cart->getOrderTotal(true, Cart::BOTH);
         $extra_vars = array(
             '{total_to_pay}' => Tools::displayPrice($total),
-        );        
+        );
+
+        // EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, 'Attempting to Create Order', $cart->id, 'OrderCreateRequest: ');
+        // $this->module->validateOrder($cart->id, Configuration::get('PS_OS_EASEBUZZ_PAYMENT_PENDING'), $total, $this->module->displayName, NULL, $extra_vars, (int) $currency->id, false, $customer->secure_key);
 
         $cart_id = $cart->id;
 
@@ -59,11 +69,11 @@ class EasebuzzPaymentPaymentModuleFrontController extends ModuleFrontController
         $country = $address->country;
 
         $txnid = 'TXN-' . $cart_id .'-'. time();  // Generate a unique transaction ID
-        EasebuzzLogger::addLog('payment_process', __FUNCTION__, 'Generated txn_id: ' . $txnid, $cart->id, 'TxnIdGeneration: ');
+        EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, 'Generated txn_id: ' . $txnid, $cart->id, 'TxnIdGeneration: ');
     
         $request_Info = $key . '|' . $txnid . '|' . $amount . '|' . $productInfo . '|' . $firstname . '|' . $email . '|' . $udf1 . '|' . $udf2 . '|' . $udf3 . '|' . $udf4 . '|' . $udf5 . '||||||'.$salt;
         $hash = hash('SHA512', $request_Info);
-        EasebuzzLogger::addLog('payment_process', __FUNCTION__, '$request_Info hash', $request_Info);
+        EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, '$request_Info hash', $request_Info);
         $request_data = array(
             'api_url' => $api_url,
             'key' => $key,
@@ -98,19 +108,27 @@ class EasebuzzPaymentPaymentModuleFrontController extends ModuleFrontController
             'response_body' => pSQL('response_info'),
         ));
 
-        EasebuzzLogger::addLog('payment_process', __FUNCTION__, print_r($request_data, true), $txnid, 'PHP Version: ' . phpversion() .'Payment Request Data: ');
+        EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, print_r($request_data, true), $txnid, 'PHP Version: ' . phpversion() .'Payment Request Data: ');
         // Initiate payment request
         $response = $this->initiatePayment($api_url, $request_data);
-        EasebuzzLogger::addLog('payment_process', __FUNCTION__, print_r($response, true), $txnid, 'Payment Response: ');
+        EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, print_r($response, true), $txnid, 'Payment Response: ');
 
         if ($response && isset($response['data'])) {
-            EasebuzzLogger::addLog('payment_process', __FUNCTION__, 'Redirecting to Payment URL: ' . $response['data'], $txnid);
-            Tools::redirect($base_url.'pay/'.$response['data']);
+            $ajax_response = [
+                'success' => true,
+                'message' => 'Payment initialized successfully',
+                'access_token' => $response['data']
+            ];            
+            EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, 'Return Token for iframe checkout: ' . $response['data'], $txnid);
         } else {
-            EasebuzzLogger::addLog('payment_process', __FUNCTION__, 'Error Initiating Payment', $txnid);
-            Tools::redirect('index.php?controller=order&step=1');
-            return;
+            $message = 'Error on initiating payment request';
+            $ajax_response = [
+                'success' => false,
+                'message' => $message
+            ];
+            EasebuzzLogger::addLog('iframe_payment_process', __FUNCTION__, 'Error Initiating access token', $txnid);
         }
+        die(json_encode($ajax_response));
     }
 
     private function initiatePayment($url, $data){

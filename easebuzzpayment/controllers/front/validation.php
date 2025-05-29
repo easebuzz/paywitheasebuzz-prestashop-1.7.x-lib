@@ -9,13 +9,21 @@ class EasebuzzPaymentValidationModuleFrontController extends ModuleFrontControll
             $this->returnError('Invalid transaction ID');
         }
         
-        $order_data = Db::getInstance()->getRow('SELECT order_id FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE txn_id = "' . pSQL($txnid) . '"');
-        if (!$order_data || !isset($order_data['order_id'])) {
+        $cart_data = Db::getInstance()->getRow('SELECT cart_id FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE txn_id = "' . pSQL($txnid) . '"');
+        if (!$cart_data || !isset($cart_data['cart_id'])) {
             $this->returnError('Order not found for txn_id: ' . $txnid);
         }
 
-        $order_id = (int) $order_data['order_id'];
-        $cart = new Cart((int) Cart::getCartIdByOrderId($order_id));
+        $cart_id = (int) $cart_data['cart_id'];
+
+        $cart = new Cart($cart_id);
+        if (!Validate::isLoadedObject($cart)) {
+            $this->returnError('Cart not found for ID: ' . $cart_id);
+        }
+
+        $this->context->cart = $cart;
+        $this->context->cookie->id_cart = $cart->id;
+        $this->context->cookie->write();
 
         if ($cart->id_customer == 0 || $cart->id_address_delivery == 0 ||
             $cart->id_address_invoice == 0 || !$this->module->active) {
@@ -45,23 +53,22 @@ class EasebuzzPaymentValidationModuleFrontController extends ModuleFrontControll
         $email = Tools::getValue('email');
         $firstname = Tools::getValue('firstname');
         $productinfo = Tools::getValue('productinfo');
-        $amount = (float) Tools::getValue('amount');
+        $amount = Tools::getValue('amount');
         $responcehase = Tools::getValue('hash');
 
         $responce_info = $salt.'|'.$status.'||||||' . $udf5 . '|' . $udf4 . '|' . $udf3 . '|' . $udf2 . '|' . $udf1 . '|' . $email . '|' . $firstname . '|' . $productinfo . '|' . $amount . '|'.$txnid.'|' . $key;
 
         $hase = hash('SHA512', $responce_info);
-        EasebuzzLogger::addLog('order', __FUNCTION__, '$responce_info hash', $responce_info);
-        
-        $customData = [
-            'txnid' => $txnid,
-            'amount' => $amount,
-            'customField' => 'YourCustomValue', // Add your custom data
-        ];
+        EasebuzzLogger::addLog('payment_process', __FUNCTION__, '$responce_info hash', $responce_info);
         
         if (Tools::getValue('status') == 'success') {
             if ($hase == $responcehase) {
-                $successtatus = Configuration::get('PS_OS_PAYMENT');
+                $successtatus = Configuration::get('PS_OS_EASEBUZZ_PAYMENT_RECEIVED');
+
+                EasebuzzLogger::addLog('payment_process', __FUNCTION__, 'Attempting to Create Order', $cart->id, 'OrderCreateRequest: ');
+                $this->module->validateOrder($cart->id, Configuration::get('PS_OS_EASEBUZZ_PAYMENT_PENDING'), $total, $this->module->displayName, NULL, $extra_vars, (int) $currency->id, false, $customer->secure_key);                
+                $order_id = $this->module->currentOrder;
+
                 $order = new Order($order_id);
                 $order->setCurrentState($successtatus);
 
@@ -80,21 +87,17 @@ class EasebuzzPaymentValidationModuleFrontController extends ModuleFrontControll
             // User cancelled
             $cancel_status = Configuration::get('PS_OS_CANCELED');
         
-            $order = new Order($order_id);
-            $order->setCurrentState($cancel_status);
-        
-            $return_url = $this->context->link->getModuleLink('easebuzzpayment', 'orderCancelled', array(
-                'id_cart'    => $cart->id,
-                'id_module'  => $this->module->id,
-                'id_order'   => $order_id,
-                'key'        => $customer->secure_key
-            ));
-        
-            Tools::redirect($return_url);
+            $this->errors[] = $this->module->l('Payment was cancelled by the user. Please try again.', 'validation');
+            // Redirect back to checkout
+            Tools::redirect('index.php?controller=order&step=1');            
         }elseif (Tools::getValue('status') == 'failure') {
             //failure
 
             $failstatus = Configuration::get('PS_OS_ERROR');
+
+            EasebuzzLogger::addLog('payment_process', __FUNCTION__, 'Attempting to Create Order', $cart->id, 'OrderCreateRequest: ');
+            $this->module->validateOrder($cart->id, Configuration::get('PS_OS_EASEBUZZ_PAYMENT_PENDING'), $total, $this->module->displayName, NULL, $extra_vars, (int) $currency->id, false, $customer->secure_key);                
+            $order_id = $this->module->currentOrder;
 
             $order = new Order($order_id);
             $order->setCurrentState($failstatus);

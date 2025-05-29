@@ -1,11 +1,13 @@
 <?php
 
+include_once(_PS_MODULE_DIR_ . 'easebuzzpayment/tools/EasebuzzLogger.php');
+
 class EasebuzzPaymentWebhookModuleFrontController extends ModuleFrontController
 {
     public function postProcess()
     {
         $data = file_get_contents('php://input');
-        parse_str(urldecode($data), $jsonData);
+        $jsonData = json_decode($data, true);
 
         EasebuzzLogger::addLog('webhook', __FUNCTION__, $data, 0, 'WebhookReceived: ');
 
@@ -40,15 +42,20 @@ class EasebuzzPaymentWebhookModuleFrontController extends ModuleFrontController
                 'webhook_body' => pSQL($data)
             ]);
 
-            $sql = 'SELECT order_id FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE txn_id = "' . pSQL($txnId) . '"';
-            $orderId = Db::getInstance()->getValue($sql);
+            $sql = 'SELECT cart_id FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE txn_id = "' . pSQL($txnId) . '"';
+            $cartId = Db::getInstance()->getValue($sql);
 
-            if ($orderId) {
-                $order = new Order($orderId);
+            if ($cartId) {
+                $order_id = Order::getIdByCartId($cart_id);
+                if (!$order_id) {
+                    EasebuzzLogger::addLog('webhook', __FUNCTION__, 'Order not found', $txnId, 'Order not found: ');
+                    die('Order not found');
+                }
+                $order = new Order($order_id);
 
                 switch ($status) {
                     case 'success':
-                        $order->setCurrentState(Configuration::get('PS_OS_PAYMENT'));
+                        $order->setCurrentState(Configuration::get('PS_OS_EASEBUZZ_PAYMENT_RECEIVED'));
                         break;
                     case 'failure':
                         $order->setCurrentState(Configuration::get('PS_OS_CANCELED'));

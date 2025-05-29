@@ -22,6 +22,7 @@ class EasebuzzPaymentGetContentController
             Configuration::updateValue('EASEBUZZ_API_CRED_SALT', Tools::getValue('EASEBUZZ_API_CRED_SALT'));
             Configuration::updateValue('EASEBUZZ_ENVIRONMENT', Tools::getValue('EASEBUZZ_ENVIRONMENT'));
             Configuration::updateValue('EAZEBUZZ_LOGGER', Tools::getValue('EAZEBUZZ_LOGGER')??0);
+            Configuration::updateValue('EASEBUZZ_CHECKOUT_OPTIONS', Tools::getValue('EASEBUZZ_CHECKOUT_OPTIONS')??'hosted');
             $this->context->smarty->assign('confirmation', 'ok');
         }
     }
@@ -55,6 +56,19 @@ class EasebuzzPaymentGetContentController
             ),
         );
 
+        $options3 = array(
+            array(
+                'id' => 'hosted',
+                'value' => 'hosted',
+                'label' => $this->module->l('Hosted')
+            ),
+            array(
+                'id' => 'iframe',
+                'value' => 'iframe',
+                'label' => $this->module->l('Iframe')
+            ),
+        );
+
         $inputs = array(
             array(
                 'name' => 'EASEBUZZ_API_CRED_ID',
@@ -80,6 +94,13 @@ class EasebuzzPaymentGetContentController
                 'label' => $this->module->l('Save logs'),
                 'name' => 'EAZEBUZZ_LOGGER',
                 'values' => $options2
+            ),
+            array(
+                'name' => 'EASEBUZZ_CHECKOUT_OPTIONS',
+                'label' => $this->module->l('Checkout Options'),
+                'type' => 'radio',
+                'values' => $options3,
+                'required' => true,
             )
         );
 
@@ -107,6 +128,7 @@ class EasebuzzPaymentGetContentController
                 'EASEBUZZ_API_CRED_SALT' => Tools::getValue('EASEBUZZ_API_CRED_SALT', Configuration::get('EASEBUZZ_API_CRED_SALT')),
                 'EASEBUZZ_ENVIRONMENT' => Tools::getValue('EASEBUZZ_ENVIRONMENT', Configuration::get('EASEBUZZ_ENVIRONMENT')),
                 'EAZEBUZZ_LOGGER' => Tools::getValue('EAZEBUZZ_LOGGER', Configuration::get('EAZEBUZZ_LOGGER')),
+                'EASEBUZZ_CHECKOUT_OPTIONS' => Tools::getValue('EASEBUZZ_CHECKOUT_OPTIONS', Configuration::get('EASEBUZZ_CHECKOUT_OPTIONS')),
             ),
             'languages' => $this->context->controller->getLanguages()
         );

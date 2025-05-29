@@ -46,7 +46,10 @@ class EasebuzzPayment extends PaymentModule
         if (!parent::uninstall()
             || !Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'ease_buzz_debug`')
             || !Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'ease_buzz_webhook_log`')
-            || !Configuration::deleteByName('PS_OS_EASEBUZZ_PAYMENT')
+            || !Configuration::deleteByName('PS_OS_EASEBUZZ_PAYMENT_COMPLETED')
+            || !Configuration::deleteByName('PS_OS_EASEBUZZ_PAYMENT_RECEIVED')
+            || !Configuration::deleteByName('PS_OS_EASEBUZZ_PAYMENT_FAILED')
+            || !Configuration::deleteByName('PS_OS_EASEBUZZ_PAYMENT_PENDING')
         ) {
             return false;
         }
@@ -56,49 +59,82 @@ class EasebuzzPayment extends PaymentModule
 
     public function installOrderState()
     {
-        if (Configuration::get('PS_OS_EASEBUZZ_PAYMENT') < 1) {
-            $order_state = new OrderState();
-            $order_state->send_email = true;
-            $order_state->module_name = $this->name;
-            $order_state->invoice = false;
-            $order_state->color = '#98c3ff';
-            $order_state->logable = true;
-            $order_state->shipped = false;
-            $order_state->unremovable = false;
-            $order_state->delivery = false;
-            $order_state->hidden = false;
-            $order_state->paid = false;
-            $order_state->deleted = false;
-            $order_state->name = array((int)Configuration::get('PS_LANG_DEFAULT') => pSQL($this->l('Easebuzz - Awaiting confirmation')));
-            $order_state->template = array();
-            
-            foreach (Language::getLanguages() as $l) {
-                $order_state->template[$l['id_lang']] = 'easebuzzpayment';
-            }
-             
-            foreach (Language::getLanguages() as $l) {
-                $module_path = dirname(__FILE__) . '/views/templates/mails/' . $l['iso_code'] . '/';
-                $application_path = _PS_MAIL_DIR_ . $l['iso_code'] . '/';
+        $statuses = [
+            [
+                'name' => 'Payment Completed',
+                'color' => '#28a745',
+                'logable' => true,
+                'paid' => true,
+                'send_mail' => false
+            ],
+            [
+                'name' => 'Payment Received',
+                'color' => '#17a2b8',
+                'logable' => true,
+                'paid' => true,
+                'send_mail' => false
+            ],
+            [
+                'name' => 'Payment Failed',
+                'color' => '#dc3545',
+                'logable' => false,
+                'paid' => false,                
+                'send_mail' => false
+            ],
+            [
+                'name' => 'Payment Pending',
+                'color' => '#ffc107',
+                'logable' => false,
+                'paid' => false,
+                'send_mail' => false
+            ]
+        ];
 
-                if (!file_exists($module_path . 'easebuzzpayment.txt') || !file_exists($module_path . 'easebuzzpayment.html')) {
-                    // Fallback to English if language-specific templates are missing
-                    $module_path = dirname(__FILE__) . '/views/templates/mails/en/';
+        foreach ($statuses as $status) {
+            if (!Configuration::get('PS_OS_EASEBUZZ_' . strtoupper(str_replace(' ', '_', $status['name'])))) {
+                $order_state = new OrderState();
+                $order_state->send_email = $status['send_mail'];
+                $order_state->module_name = $this->name;
+                $order_state->invoice = true;
+                $order_state->color = $status['color'];
+                $order_state->logable = $status['logable'];
+                $order_state->shipped = false;
+                $order_state->unremovable = false;
+                $order_state->delivery = false;
+                $order_state->hidden = false;
+                $order_state->paid = $status['paid'];
+                $order_state->deleted = false;
+                $order_state->name = array((int)Configuration::get('PS_LANG_DEFAULT') => pSQL($this->l($status['name'])));
+                $order_state->template = array();
+    
+                foreach (Language::getLanguages() as $l) {
+                    $order_state->template[$l['id_lang']] = 'easebuzzpayment';
                 }
-                if (!copy($module_path . 'easebuzzpayment.txt', $application_path . 'easebuzzpayment.txt')
-                    || !copy($module_path . 'easebuzzpayment.html', $application_path . 'easebuzzpayment.html')
-                ) {
+    
+                // foreach (Language::getLanguages() as $l) {
+                //     $module_path = dirname(__FILE__) . '/views/templates/mails/' . $l['iso_code'] . '/';
+                //     $application_path = _PS_MAIL_DIR_ . $l['iso_code'] . '/';
+    
+                //     if (!file_exists($module_path . 'easebuzzpayment.txt') || !file_exists($module_path . 'easebuzzpayment.html')) {
+                //         // Fallback to English if language-specific templates are missing
+                //         $module_path = dirname(__FILE__) . '/views/templates/mails/en/';
+                //     }
+                //     if (!copy($module_path . 'easebuzzpayment.txt', $application_path . 'easebuzzpayment.txt')
+                //         || !copy($module_path . 'easebuzzpayment.html', $application_path . 'easebuzzpayment.html')
+                //     ) {
+                //         return false;
+                //     }
+                // }
+    
+                if ($order_state->add()) {
+                    Configuration::updateValue('PS_OS_EASEBUZZ_' . strtoupper(str_replace(' ', '_', $status['name'])), $order_state->id);
+    
+                    // Copy the module logo
+                    copy(dirname(__FILE__) . '/logo.gif', _PS_IMG_DIR_ . 'os/' . $order_state->id . '.gif');
+                    copy(dirname(__FILE__) . '/logo.gif', _PS_IMG_DIR_ . 'tmp/order_state_mini_' . $order_state->id . '.gif');
+                } else {
                     return false;
                 }
-            }
-
-            if ($order_state->add()) {
-                Configuration::updateValue('PS_OS_EASEBUZZ_PAYMENT', $order_state->id);
-
-                // Copy the module logo
-                copy(dirname(__FILE__) . '/logo.gif', _PS_IMG_DIR_ . 'os/' . $order_state->id . '.gif');
-                copy(dirname(__FILE__) . '/logo.gif', _PS_IMG_DIR_ . 'tmp/order_state_mini_' . $order_state->id . '.gif');
-            } else {
-                return false;
             }
         }
 
@@ -109,7 +145,7 @@ class EasebuzzPayment extends PaymentModule
     {
         $sql = "CREATE TABLE IF NOT EXISTS `" . _DB_PREFIX_ . "ease_buzz_debug` (
             `debug_id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
-            `order_id` INT(20) NOT NULL,
+            `cart_id` INT(20) NOT NULL,
             `txn_id` VARCHAR(64) NOT NULL,
             `request_debug_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `response_debug_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -137,22 +173,31 @@ class EasebuzzPayment extends PaymentModule
         }
         
         $payment_option = new \PrestaShop\PrestaShop\Core\Payment\PaymentOption();
-        $payment_option->setCallToActionText($this->l('Pay with '))
-            ->setAction($this->context->link->getModuleLink($this->name, 'payment', [], true))
-            ->setLogo(Media::getMediaPath(_PS_MODULE_DIR_ . $this->name . '/logo.gif'));
+
+        if(Configuration::get('EASEBUZZ_CHECKOUT_OPTIONS') == 'hosted'){
+            $payment_option->setCallToActionText($this->l('Pay with '))
+                        ->setAction($this->context->link->getModuleLink($this->name, 'payment', [], true))
+                        ->setLogo(Media::getMediaPath(_PS_MODULE_DIR_ . $this->name . '/logo.gif'));
+        }else{
+            $app_env = Configuration::get('EASEBUZZ_ENVIRONMENT') == 'sandbox' ? 'test' : 'prod';
+            $easebuzz_checkout_key = Configuration::get('EASEBUZZ_API_CRED_ID');
+
+            // Assign variables to Smarty
+            $this->context->smarty->assign([
+                'easebuzz_checkout_key' => $easebuzz_checkout_key,
+                'app_env' => $app_env,
+                'module_link' => $this->context->link->getModuleLink($this->name, 'paymentAjax', ['ajax' => 1], true),
+                'validation_link' => $this->context->link->getModuleLink($this->name, 'validationAjax', ['ajax' => 1], true)
+            ]);
+
+            $payment_option->setCallToActionText($this->l('Pay with '))
+                        ->setAction($this->context->link->getModuleLink($this->name, 'payment', ['ajax' => 1], true))
+                        ->setAdditionalInformation($this->fetch('module:easebuzzpayment/views/templates/front/payment_script.tpl'))
+                        ->setLogo(Media::getMediaPath(_PS_MODULE_DIR_ . $this->name . '/logo.gif'));
+        }
+        
     
         return [$payment_option];
-    }
-
-    public function getExternalPaymentOption()
-    {
-        $externalOption = new \PrestaShop\PrestaShop\Core\Payment\PaymentOption();
-        $externalOption->setCallToActionText($this->l('Pay by Eazebuzz'))
-            ->setAction($this->context->link->getModuleLink($this->name, 'payment', [], true))
-            ->setLogo(Media::getMediaPath(_PS_MODULE_DIR_ . $this->name . '/logo.gif'));
-            
-
-        return $externalOption;
     }
 
     public function hookDisplayPaymentReturn($params)
@@ -160,7 +205,7 @@ class EasebuzzPayment extends PaymentModule
         if (!$this->active) {
             return;
         }
-        EasebuzzLogger::addLog('order', __FUNCTION__, print_r($params['order'], true), $params['order']->id, 'PaymentResponse: ');
+        EasebuzzLogger::addLog('payment_process', __FUNCTION__, print_r($params['order'], true), $params['order']->id, 'PaymentResponse: ');
         
         $resp_data = [
             'shop_name' => $this->context->shop->name,
@@ -174,7 +219,7 @@ class EasebuzzPayment extends PaymentModule
             'reference' => $params['order']->reference,
             'module_dir' => $this->getPathUri()
         ];
-        $order_data = Db::getInstance()->getRow('SELECT response_body FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE order_id = ' . (int)$params['order']->id);
+        $order_data = Db::getInstance()->getRow('SELECT response_body FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE cart_id = ' . (int)$params['order']->id_cart);
         if($order_data && isset($order_data['response_body'])){
             $payment_data = json_decode($order_data['response_body']);
             $resp_data['txnid'] = $payment_data->txnid??"";
@@ -187,7 +232,7 @@ class EasebuzzPayment extends PaymentModule
         $this->smarty->assign($resp_data);
         $template = '';
         switch ($params['order']->current_state) {
-            case Configuration::get('PS_OS_PAYMENT'):
+            case Configuration::get('PS_OS_EASEBUZZ_PAYMENT_RECEIVED'):
                 $template = 'displayPaymentReturn.tpl';
                 break;
             case Configuration::get('PS_OS_CANCELED'):
@@ -211,13 +256,13 @@ class EasebuzzPayment extends PaymentModule
     public function hookDisplayOrderDetail($params) {
         $order = $params['order'];
     
-        $paymentAcceptedStatus = Configuration::get('PS_OS_PAYMENT');
+        $paymentAcceptedStatus = Configuration::get('PS_OS_EASEBUZZ_PAYMENT_RECEIVED');
     
         if (strpos($order->payment, 'Easebuzz') !== false && $order->current_state != $paymentAcceptedStatus) {
             $paymentStatusUrl = $this->context->link->getModuleLink(
                 'easebuzzpayment',
                 'paymentstatus',
-                ['id_order' => $order->id]
+                ['id_cart' => $order->id_cart, 'id_order' => $order->id]
             );
     
             $this->context->smarty->assign([

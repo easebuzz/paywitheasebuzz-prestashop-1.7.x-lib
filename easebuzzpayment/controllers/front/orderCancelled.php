@@ -25,7 +25,7 @@ class EasebuzzPaymentOrderCancelledModuleFrontController extends ModuleFrontCont
             'reference' => $order->reference,
             'module_dir' => $this->module->getPathUri()
         ];
-        $order_data = Db::getInstance()->getRow('SELECT response_body FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE order_id = ' . (int)$order->id);
+        $order_data = Db::getInstance()->getRow('SELECT response_body FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE cart_id = ' . (int)$order->id_cart);
         if($order_data && isset($order_data['response_body'])){
             $payment_data = json_decode($order_data['response_body']);
             $resp_data['txnid'] = $payment_data->txnid??"";

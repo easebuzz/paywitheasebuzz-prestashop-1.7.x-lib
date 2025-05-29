@@ -13,13 +13,14 @@ class EasebuzzPaymentPaymentStatusModuleFrontController extends ModuleFrontContr
     
     private function checkPaymentStatusForOrderID()
     {
+        $id_cart = (int) Tools::getValue('id_cart');
         $id_order = (int) Tools::getValue('id_order');
         $base_url = (Configuration::get('EASEBUZZ_ENVIRONMENT') == 'sandbox')?'https://testdashboard.easebuzz.in/':'https://dashboard.easebuzz.in/';
         $api_url = $base_url.'transaction/v2.1/retrieve';
         $salt = Configuration::get('EASEBUZZ_API_CRED_SALT');
         $key = Configuration::get('EASEBUZZ_API_CRED_ID');
         
-        $order_data = Db::getInstance()->getRow('SELECT txn_id FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE order_id = ' . $id_order);
+        $order_data = Db::getInstance()->getRow('SELECT txn_id FROM ' . _DB_PREFIX_ . 'ease_buzz_debug WHERE cart_id = ' . $id_cart);
         if (!$order_data || !isset($order_data['txn_id'])) {
             echo json_encode(['success' => false, 'message' => 'Order not found for order_id: ' . $id_order]);
             die();
@@ -39,7 +40,7 @@ class EasebuzzPaymentPaymentStatusModuleFrontController extends ModuleFrontContr
         $message = '';
 
         if ($status === 'success') {
-            $successtatus = Configuration::get('PS_OS_PAYMENT');
+            $successtatus = Configuration::get('PS_OS_EASEBUZZ_PAYMENT_RECEIVED');
             $order = new Order($id_order);
             $order->setCurrentState($successtatus);
             $message = 'Payment status updated to success.';
